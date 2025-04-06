@@ -4,5 +4,5 @@ pytz==2023.3
 asyncio==3.4.3
 logging==0.4.9.6
 Flask==2.3.2
-supabase-py==1.0.3
+git+https://github.com/supabase-community/supabase-py@v1.0.3
 httpx==0.24.1
