@@ -27,10 +27,13 @@ TIMEZONE = pytz.timezone('America/Sao_Paulo')
 # Configuração do Supabase
 SUPABASE_URL = "https://xlveliuzarbdzlksuadz.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsdmVsaXV6YXJiZHpsa3N1YWR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NTg0MjcsImV4cCI6MjA1OTQzNDQyN30.iu5_ZIfKdCXu1swNfjeaQ-8ks25WBdIh3MvZbmymqyE"
-Client = create_client(SUPABASE_URL, SUPABASE_KEY, options={
-    'auto_refresh_token': True,
-    'persist_session': True
-})
+from supabase.lib.client_options import ClientOptions
+
+client_options = ClientOptions(
+    auto_refresh_token=True,
+    persist_session=True
+)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, options=client_options)
 
 # Variáveis globais
 ultima_enquete_id = None
