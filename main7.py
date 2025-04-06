@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, PollAnswerHandler
 from flask import Flask
-from supabase import create_client, Client
+from supabase.lib.client_options import ClientOptions
 import os
 
 # Configuração do logging com formato estruturado
