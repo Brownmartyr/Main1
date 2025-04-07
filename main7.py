@@ -263,7 +263,7 @@ async def main():
     tasks = []
 
     try:
-        schedule_time = "15:00"
+        schedule_time = "05:00"
         logger.info(f"Configurando envio diário de enquete para {schedule_time} {TIMEZONE}")
 
         for chat_id in CHAT_IDS:
