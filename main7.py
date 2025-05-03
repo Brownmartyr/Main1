@@ -25,8 +25,8 @@ CHAT_IDS = ["1980190204, 454888590"]  # Lista de chat IDs
 TIMEZONE = pytz.timezone('America/Sao_Paulo')
 
 # Configuração do Supabase
-SUPABASE_URL = "https://wjbyyvrpeckzrcrxxyyc.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndqYnl5dnJwZWNrenJjcnh4eXljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxMjU5NzQsImV4cCI6MjA1OTcwMTk3NH0.7j7lvbGAlqc-niFsoqle0Gn3ykyBmf4t3hnvJP_egck"
+SUPABASE_URL = "https://xlveliuzarbdzlksuadz.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsdmVsaXV6YXJiZHpsa3N1YWR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NTg0MjcsImV4cCI6MjA1OTQzNDQyN30.iu5_ZIfKdCXu1swNfjeaQ-8ks25WBdIh3MvZbmymqyE"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # GIF para 100 dias de streak
