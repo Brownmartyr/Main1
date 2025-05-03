@@ -19,16 +19,19 @@ logger = logging.getLogger(__name__)
 
 # Token e Chat IDs fixos
 TOKEN = "8028404342:AAGItd1jbu0wRIa0oYt43_K1kCBSnbJOeFE"
-CHAT_IDS = ["1980190204", "454888590"]  # Lista de chat IDs
+CHAT_IDS = ["1980190204, 454888590"]  # Lista de chat IDs
 
 # Configuração do fuso horário de Brasília
 TIMEZONE = pytz.timezone('America/Sao_Paulo')
 
 # Configuração do Supabase
-SUPABASE_URL = "https://xlveliuzarbdzlksuadz.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsdmVsaXV6YXJiZHpsa3N1YWR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NTg0MjcsImV4cCI6MjA1OTQzNDQyN30.iu5_ZIfKdCXu1swNfjeaQ-8ks25WBdIh3MvZbmymqyE"
+SUPABASE_URL = "https://wjbyyvrpeckzrcrxxyyc.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndqYnl5dnJwZWNrenJjcnh4eXljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxMjU5NzQsImV4cCI6MjA1OTcwMTk3NH0.7j7lvbGAlqc-niFsoqle0Gn3ykyBmf4t3hnvJP_egck"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# GIF para 100 dias de streak
+GIF_100_DAYS = "https://i.imgur.com/lTjeIAw.gif"
+Legenda_30 = ""
 # Variáveis globais
 ultima_enquete_id = None
 streaks = {}  # Dicionário para armazenar a streak de cada usuário
@@ -132,6 +135,30 @@ async def fechar_enquete_apos_delay(chat_id: str, message_id: int, context: Appl
     except Exception as e:
         logger.error(f"Erro ao fechar enquete {message_id}: {str(e)}", exc_info=True)
 
+async def verificar_streak_100_dias(user_id: int, context: ContextTypes.DEFAULT_TYPE):
+    """Verifica se o usuário atingiu 100 dias de streak e envia o GIF"""
+    try:
+        current_streak = streaks.get(user_id, 0)
+        
+        # Se a streak é exatamente 100, enviar GIF especial
+        if current_streak == 100:
+            await context.bot.send_animation(
+                chat_id=user_id,
+                animation=GIF_100_DAYS,
+                caption="Oi, eu nunca sei como começar esses textos, mas vamos lá, estou escrevendo isso dia 22/04, eu não sei como vamos estar daqui a 3 meses, mas hoje diria que estamos okay, ainda tenho esperança que as coisas voltem ao seu devido o lugar e possamos estar juntos novamente. No dia que você me deu aquele selinho no aeroporto eu explodi de alegria por dentro, sério. Enfim estou escrevendo isso para lhe lembrar que mesmo após toda essa bagunça você continua incrível, a mulher mais forte que já conheci, delicada, mas ainda feroz quando necessário, eu adoro quando nos vermos e eu ainda sinto seu perfume quando estou em casa, adoro seu sorriso, adoro o jeito que você se veste, adoro o jeito que você olha para mim.Eu me sinto tão em paz quando estou contigo sabe? É como se o meu mundo parasse de girar e só você importasse para mim, você é o amor da minha vida e não quero e nem vou esquecer você jamais, Eu te amo Dandara ❤️!, Ah e parabéns pelos 100 dias 🥳, você é foda"
+            )
+            logger.info(f"GIF de 100 dias enviado para o usuário {user_id}")
+        elif current_streak == 60:
+            await context.bot.send_message(chat_id=user_id, text="🎖️ 60 dias = 60 vitórias! Parabéns por não desistir!")
+        elif current_streak == 30:
+            await context.bot.send_message(chat_id=user_id, text="🏆 Medalha de ouro para você! 30 dias tomando seu remédio certinho!")
+            await context.bot.send_message(chat_id=user_id, text="📅 Um mês de consistência! Você está indo muito bem!")
+        elif current_streak == 7:
+            await context.bot.send_message(chat_id=user_id, text="🌟 Uma semana completa, um dia de cada vez, continue assim!")
+            
+    except Exception as e:
+        logger.error(f"Erro ao verificar streak de 100 dias: {str(e)}", exc_info=True)
+
 async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Lidar com a resposta à enquete"""
     global streaks
@@ -150,17 +177,16 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if selected_option == 0:  # Resposta "Sim"
             streaks[user_id] += 1
             streak_msg = f"🎉 Parabéns! Você está tomando seu remédio há {streaks[user_id]} dias consecutivos!"
-            if streaks[user_id] >= 7:
-                streak_msg += "\n🌟 Uma semana completa, continue assim!"
-            elif streaks[user_id] >= 30:
-                streak_msg += "\n🏆 Um mês completo, você é incrível!"
-
+            
             await context.bot.send_message(chat_id=user_id, text=streak_msg)
             await context.bot.send_message(chat_id=user_id, text="Ótimo trabalho em cuidar da sua saúde! ☺️")
             logger.info(f"Streak atualizada para o usuário {user_id}: {streaks[user_id]} dias")
 
             # Salvar a nova streak no banco de dados
             await salvar_streak(user_id, streaks[user_id])
+            
+            # Verificar marcos de streak
+            await verificar_streak_100_dias(user_id, context)
 
             # Agendar mensagem de confirmação após 1 hora
             asyncio.create_task(
@@ -263,7 +289,7 @@ async def main():
     tasks = []
 
     try:
-        schedule_time = "05:00"
+        schedule_time = "10:00"
         logger.info(f"Configurando envio diário de enquete para {schedule_time} {TIMEZONE}")
 
         for chat_id in CHAT_IDS:
