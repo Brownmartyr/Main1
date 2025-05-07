@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Token e Chat IDs fixos
 TOKEN = "8028404342:AAGItd1jbu0wRIa0oYt43_K1kCBSnbJOeFE"
-CHAT_IDS = ["1980190204, 454888590"]  # Lista de chat IDs
+CHAT_IDS = ["1980190204", "454888590"]  # Lista de chat IDs
 
 # Configuração do fuso horário de Brasília
 TIMEZONE = pytz.timezone('America/Sao_Paulo')
