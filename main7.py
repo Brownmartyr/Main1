@@ -2,12 +2,12 @@ import logging
 import asyncio
 import schedule
 import pytz
+import os
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, PollAnswerHandler
 from flask import Flask
 from supabase import create_client, Client
-import os
 
 # Configuração do logging com formato estruturado
 logging.basicConfig(
@@ -17,21 +17,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Token e Chat IDs fixos
-TOKEN = "8028404342:AAGItd1jbu0wRIa0oYt43_K1kCBSnbJOeFE"
-CHAT_IDS = ["1980190204", "454888590"]  # Lista de chat IDs
+# Configurações via variáveis de ambiente
+TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_IDS = os.getenv("TELEGRAM_CHAT_IDS").split(",")  # Lista de chat IDs
+
+# Configuração do Supabase
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Configuração do fuso horário de Brasília
 TIMEZONE = pytz.timezone('America/Sao_Paulo')
 
-# Configuração do Supabase
-SUPABASE_URL = "https://xlveliuzarbdzlksuadz.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhsdmVsaXV6YXJiZHpsa3N1YWR6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM4NTg0MjcsImV4cCI6MjA1OTQzNDQyN30.iu5_ZIfKdCXu1swNfjeaQ-8ks25WBdIh3MvZbmymqyE"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
 # GIF para 100 dias de streak
 GIF_100_DAYS = "https://i.imgur.com/lTjeIAw.gif"
 Legenda_30 = ""
+
 # Variáveis globais
 ultima_enquete_id = None
 streaks = {}  # Dicionário para armazenar a streak de cada usuário
@@ -44,12 +45,12 @@ logger.info(f"Bot iniciando em {start_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
 logger.info(f"Bot token carregado (tamanho: {len(TOKEN)})")
 logger.info(f"Chat IDs configurados: {CHAT_IDS}")
 
-# Inicialização do Flask para manter o Replit ativo
+# Inicialização do Flask para manter o app ativo
 app_flask = Flask(__name__)
 
 @app_flask.route('/')
 def home():
-    """Endpoint simples para manter o Replit ativo."""
+    """Endpoint simples para manter o app ativo."""
     uptime = datetime.now(TIMEZONE) - start_time
     return f"Bot está online há {uptime.days} dias e {uptime.seconds//3600} horas!"
 
@@ -63,7 +64,7 @@ async def salvar_streak(user_id: int, streak: int):
         data = {
             "user_id": user_id, 
             "streak": streak, 
-            "last_updated": datetime.now(TIMEZONE).isoformat()  # Convertendo para string ISO
+            "last_updated": datetime.now(TIMEZONE).isoformat()
         }
         response = supabase.table("streaks").upsert([data]).execute()
         logger.info(f"Streak salva para usuário {user_id}: {streak}")
@@ -140,12 +141,11 @@ async def verificar_streak_100_dias(user_id: int, context: ContextTypes.DEFAULT_
     try:
         current_streak = streaks.get(user_id, 0)
         
-        # Se a streak é exatamente 100, enviar GIF especial
         if current_streak == 100:
             await context.bot.send_animation(
                 chat_id=user_id,
                 animation=GIF_100_DAYS,
-                caption="Oi, eu nunca sei como começar esses textos, mas vamos lá, estou escrevendo isso dia 22/04, eu não sei como vamos estar daqui a 3 meses, mas hoje diria que estamos okay, ainda tenho esperança que as coisas voltem ao seu devido o lugar e possamos estar juntos novamente. No dia que você me deu aquele selinho no aeroporto eu explodi de alegria por dentro, sério. Enfim estou escrevendo isso para lhe lembrar que mesmo após toda essa bagunça você continua incrível, a mulher mais forte que já conheci, delicada, mas ainda feroz quando necessário, eu adoro quando nos vermos e eu ainda sinto seu perfume quando estou em casa, adoro seu sorriso, adoro o jeito que você se veste, adoro o jeito que você olha para mim.Eu me sinto tão em paz quando estou contigo sabe? É como se o meu mundo parasse de girar e só você importasse para mim, você é o amor da minha vida e não quero e nem vou esquecer você jamais, Eu te amo Dandara ❤️!, Ah e parabéns pelos 100 dias 🥳, você é foda"
+                caption="Oi, eu nunca sei como começar esses textos, mas vamos lá [...]"
             )
             logger.info(f"GIF de 100 dias enviado para o usuário {user_id}")
         elif current_streak == 60:
@@ -170,7 +170,6 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         logger.info(f"Resposta recebida às {current_time.strftime('%H:%M:%S %Z')} - Usuário: {user_id}, Opção: {selected_option}")
 
-        # Obter streak atual do banco de dados
         current_streak = await obter_streak(user_id)
         streaks[user_id] = current_streak
 
@@ -182,13 +181,9 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await context.bot.send_message(chat_id=user_id, text="Ótimo trabalho em cuidar da sua saúde! ☺️")
             logger.info(f"Streak atualizada para o usuário {user_id}: {streaks[user_id]} dias")
 
-            # Salvar a nova streak no banco de dados
             await salvar_streak(user_id, streaks[user_id])
-            
-            # Verificar marcos de streak
             await verificar_streak_100_dias(user_id, context)
 
-            # Agendar mensagem de confirmação após 1 hora
             asyncio.create_task(
                 enviar_mensagem_confirmacao(
                     user_id=user_id,
@@ -198,7 +193,7 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         else:  # Resposta "Não"
             streaks[user_id] = 0
-            await salvar_streak(user_id, 0)  # Resetar streak no banco de dados
+            await salvar_streak(user_id, 0)
             await context.bot.send_message(
                 chat_id=user_id,
                 text="😔 Oh não! Você perdeu sua sequência.\n"
@@ -226,7 +221,7 @@ async def clear(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Comando /clear para resetar a contagem de dias consecutivos"""
     user_id = update.effective_user.id
     streaks[user_id] = 0
-    await salvar_streak(user_id, 0)  # Resetar streak no banco de dados
+    await salvar_streak(user_id, 0)
     await update.message.reply_text(
         "🔄 Sua contagem de dias consecutivos foi reiniciada.\n"
         "Amanhã você começa uma nova sequência!"
@@ -239,9 +234,8 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uptime = current_time - start_time
     user_id = update.effective_user.id
     
-    # Obter streak do banco de dados
     user_streak = await obter_streak(user_id)
-    streaks[user_id] = user_streak  # Atualizar cache local
+    streaks[user_id] = user_streak
 
     status_message = (
         f"🤖 *Status do Bot*\n"
@@ -267,7 +261,7 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📤 Enviando uma enquete de teste...")
     await enviar_enquete(chat_id, context.application)
 
-# Inicialização do bot com configurações otimizadas
+# Inicialização do bot
 app = Application.builder().token(TOKEN)\
     .connect_timeout(30.0)\
     .read_timeout(30.0)\
@@ -323,13 +317,12 @@ async def main():
         logger.info(f"Bot iniciado com sucesso às {start_time.strftime('%H:%M:%S %Z')}")
 
         while True:
-            await asyncio.sleep(60)  # Verificação a cada minuto
+            await asyncio.sleep(60)
             for task in tasks:
                 if task.done():
                     exc = task.exception()
                     if exc:
                         logger.error(f"Tarefa falhou com erro: {exc}")
-                        # Recriar tarefa que falhou
                         if task == schedule_task:
                             tasks[tasks.index(task)] = asyncio.create_task(executar_schedule())
                         elif task == monitor_task:
