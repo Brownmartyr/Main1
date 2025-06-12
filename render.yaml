@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: medication-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m main7.py
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_IDS
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
