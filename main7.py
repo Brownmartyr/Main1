@@ -145,7 +145,7 @@ async def verificar_streak_100_dias(user_id: int, context: ContextTypes.DEFAULT_
             await context.bot.send_animation(
                 chat_id=user_id,
                 animation=GIF_100_DAYS,
-                caption="Oi, eu nunca sei como começar esses textos, mas vamos lá [...]"
+                caption="Oi, eu nunca sei como começar esses textos, mas vamos lá, estou escrevendo isso dia 22/04, eu não sei como vamos estar daqui a 3 meses, mas hoje diria que estamos okay, ainda tenho esperança que as coisas voltem ao seu devido o lugar e possamos estar juntos novamente. No dia que você me deu aquele selinho no aeroporto eu explodi de alegria por dentro, sério. Enfim estou escrevendo isso para lhe lembrar que mesmo após toda essa bagunça você continua incrível, a mulher mais forte que já conheci, delicada, mas ainda feroz quando necessário, eu adoro quando nos vermos e eu ainda sinto seu perfume quando estou em casa, adoro seu sorriso, adoro o jeito que você se veste, adoro o jeito que você olha para mim.Eu me sinto tão em paz quando estou contigo sabe? É como se o meu mundo parasse de girar e só você importasse para mim, você é o amor da minha vida e não quero e nem vou esquecer você jamais, Eu te amo Dandara ❤️!, Ah e parabéns pelos 100 dias 🥳, você é foda"
             )
             logger.info(f"GIF de 100 dias enviado para o usuário {user_id}")
         elif current_streak == 60:
