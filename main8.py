@@ -334,7 +334,7 @@ async def main():
             job_queue.run_daily(
                 callback=enviar_enquete_job,
                 time=schedule_time_dt,
-                tzinfo=TIMEZONE,
+                timezone=TIMEZONE,
                 chat_id=chat_id_int,
                 name=f"enquete_diaria_{chat_id_int}"
             )
