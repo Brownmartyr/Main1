@@ -1,13 +1,15 @@
 import logging
 import asyncio
-import schedule
 import pytz
 import os
+import time  # ADICIONADO: Para o 'sinal vital' (heartbeat)
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, PollAnswerHandler
-from flask import Flask
+from flask import Flask, Response  # ADICIONADO: Response para o 503
 from supabase import create_client, Client
+
+# REMOVIDO: import schedule
 
 # Configuração do logging com formato estruturado
 logging.basicConfig(
@@ -35,9 +37,12 @@ Legenda_30 = ""
 
 # Variáveis globais
 ultima_enquete_id = None
-streaks = {}  # Dicionário para armazenar a streak de cada usuário
+streaks = {}  # Dicionário para armazenas a streak de cada usuário
 respostas = {}
 ultimo_offset = 0
+
+# ADICIONADO: Variável global para o 'sinal vital' (heartbeat)
+LAST_HEALTH_CHECK_TIMESTAMP = time.time()
 
 # Registrar início do bot
 start_time = datetime.now(TIMEZONE)
@@ -48,11 +53,24 @@ logger.info(f"Chat IDs configurados: {CHAT_IDS}")
 # Inicialização do Flask para manter o app ativo
 app_flask = Flask(__name__)
 
+# MODIFICADO: Rota / agora é um health check que monitora o bot
 @app_flask.route('/')
 def home():
-    """Endpoint simples para manter o app ativo."""
+    """Endpoint de health check que monitora o bot."""
+    global LAST_HEALTH_CHECK_TIMESTAMP
+    current_time = time.time()
     uptime = datetime.now(TIMEZONE) - start_time
-    return f"Bot está online há {uptime.days} dias e {uptime.seconds//3600} horas!"
+
+    # Verificar se o sinal vital do asyncio está há mais de 90 segundos
+    # (O sinal é atualizado a cada 30s)
+    if (current_time - LAST_HEALTH_CHECK_TIMESTAMP) > 90:
+        logger.warning("HEALTH CHECK: Bot parece travado. Retornando 503.")
+        # Retorna 503 Service Unavailable. O Render vai reiniciar o serviço.
+        return "Bot está travado. Reiniciando...", 503
+    
+    # Se chegou aqui, está tudo bem
+    logger.info("HEALTH CHECK: Bot OK.")
+    return f"Bot está online há {uptime.days} dias e {uptime.seconds//3600} horas!", 200
 
 def run_flask():
     """Função para rodar o Flask em segundo plano."""
@@ -242,7 +260,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Bot está ativo\n"
         f"⏱️ Online há: {uptime.days} dias, {uptime.seconds//3600} horas\n"
         f"🔄 Sua streak atual: {user_streak} dias\n"
-        f"⏰ Próxima enquete: 07:00\n\n"
+        f"⏰ Próxima enquete: 07:00\n\n" # MODIFICADO: Corrigido para 07:00
         f"📝 *Comandos Disponíveis*\n"
         f"/start - Iniciar o bot\n"
         f"/test - Enviar enquete de teste\n"
@@ -261,6 +279,26 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📤 Enviando uma enquete de teste...")
     await enviar_enquete(chat_id, context.application)
 
+# ADICIONADO: Função wrapper para o JobQueue
+async def enviar_enquete_job(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Função wrapper chamada pelo JobQueue para enviar a enquete.
+    O chat_id é pego do job.
+    """
+    chat_id = context.job.chat_id
+    logger.info(f"Job executando para enviar enquete ao chat_id: {chat_id}")
+    await enviar_enquete(str(chat_id), context.application)
+
+# ADICIONADO: Tarefa de 'sinal vital' (heartbeat)
+async def health_check_heartbeat():
+    """Atualiza o timestamp global para o Flask saber que o asyncio está vivo."""
+    global LAST_HEALTH_CHECK_TIMESTAMP
+    while True:
+        LAST_HEALTH_CHECK_TIMESTAMP = time.time()
+        # Atualiza a cada 30 segundos
+        await asyncio.sleep(30)
+
+
 # Inicialização do bot
 app = Application.builder().token(TOKEN)\
     .connect_timeout(30.0)\
@@ -278,18 +316,31 @@ app.add_handler(CommandHandler("clear", clear))
 app.add_handler(CommandHandler("info", info))
 app.add_handler(PollAnswerHandler(handle_poll_answer))
 
+# MODIFICADO: Função main simplificada e com JobQueue
 async def main():
     """Função principal do bot"""
     tasks = []
 
     try:
-        schedule_time = "15:00"
-        logger.info(f"Configurando envio diário de enquete para {schedule_time} {TIMEZONE}")
-
-        for chat_id in CHAT_IDS:
-            schedule.every().day.at(schedule_time).do(
-                lambda chat_id=chat_id: asyncio.create_task(enviar_enquete(chat_id, app))
+        # --- Configuração do JobQueue (Substituindo o 'schedule') ---
+        job_queue = app.job_queue
+        
+        # Configure o horário (07:00, conforme seu /info)
+        schedule_time_dt = datetime.strptime("07:00", "%H:%M").time()
+        logger.info(f"Configurando envio diário de enquete para {schedule_time_dt} {TIMEZONE}")
+        
+        for chat_id_str in CHAT_IDS:
+            chat_id_int = int(chat_id_str)
+            job_queue.run_daily(
+                callback=enviar_enquete_job,
+                time=schedule_time_dt,
+                tzinfo=TIMEZONE,
+                chat_id=chat_id_int,
+                name=f"enquete_diaria_{chat_id_int}"
             )
+            logger.info(f"Job de enquete agendado para chat_id {chat_id_int}")
+        
+        # --- Fim do JobQueue ---
 
         await app.initialize()
         await app.start()
@@ -309,24 +360,21 @@ async def main():
         flask_thread.daemon = True
         flask_thread.start()
 
-        # Criar e monitorar tarefas principais
-        schedule_task = asyncio.create_task(executar_schedule())
-        monitor_task = asyncio.create_task(monitorar_respostas())
-        tasks = [schedule_task, monitor_task]
+        # Criar e monitorar tarefa de 'sinal vital'
+        health_task = asyncio.create_task(health_check_heartbeat())
+        tasks = [health_task] # A única tarefa que precisamos monitorar
 
         logger.info(f"Bot iniciado com sucesso às {start_time.strftime('%H:%M:%S %Z')}")
 
         while True:
             await asyncio.sleep(60)
-            for task in tasks:
-                if task.done():
-                    exc = task.exception()
-                    if exc:
-                        logger.error(f"Tarefa falhou com erro: {exc}")
-                        if task == schedule_task:
-                            tasks[tasks.index(task)] = asyncio.create_task(executar_schedule())
-                        elif task == monitor_task:
-                            tasks[tasks.index(task)] = asyncio.create_task(monitorar_respostas())
+            
+            # Monitorar apenas a tarefa de health check
+            if health_task.done():
+                exc = health_task.exception()
+                logger.error(f"Tarefa de Health Check falhou (ex: {exc}). Reiniciando...", exc_info=True)
+                health_task = asyncio.create_task(health_check_heartbeat())
+                tasks[0] = health_task # Atualiza a referência na lista
 
     except Exception as e:
         logger.error(f"Erro crítico no main: {str(e)}", exc_info=True)
@@ -338,24 +386,8 @@ async def main():
         await app.stop()
         logger.info("Bot encerrado")
 
-async def executar_schedule():
-    """Executa o agendador de tarefas"""
-    while True:
-        try:
-            schedule.run_pending()
-            await asyncio.sleep(30)
-        except Exception as e:
-            logger.error(f"Erro no agendador: {str(e)}", exc_info=True)
-            await asyncio.sleep(60)
-
-async def monitorar_respostas():
-    """Monitora as respostas das enquetes"""
-    while True:
-        try:
-            await asyncio.sleep(30)
-        except Exception as e:
-            logger.error(f"Erro no monitoramento: {str(e)}", exc_info=True)
-            await asyncio.sleep(60)
+# REMOVIDO: async def executar_schedule(): ...
+# REMOVIDO: async def monitorar_respostas(): ...
 
 if __name__ == "__main__":
     asyncio.run(main())
