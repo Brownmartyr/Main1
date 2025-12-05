@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import os
+import signal
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes, PollAnswerHandler
@@ -35,6 +36,7 @@ GIF_100_DAYS = "https://i.imgur.com/lTjeIAw.gif"
 # Variáveis globais
 app_bot = None
 start_time = datetime.now(TIMEZONE)
+is_running = True
 
 async def salvar_streak(user_id: int, streak: int):
     """Salva ou atualiza a streak do usuário no Supabase"""
@@ -67,7 +69,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     await update.message.reply_text(
         "Olá! 👋 Eu sou seu bot de lembrete de medicação.\n\n"
-        "Vou te enviar uma enquete todos os dias às 7:00 para verificar "
+        "Vou te enviar uma enquete todos os dias às 12:00 (meio-dia) para verificar "
         "se você tomou seu medicamento.\n\n"
         "Use /info para ver os comandos disponíveis!"
     )
@@ -121,6 +123,11 @@ async def handle_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         answer = update.poll_answer
         user_id = answer.user.id
+        
+        if not answer.option_ids:
+            logger.warning(f"Usuário {user_id} respondeu sem opção selecionada")
+            return
+            
         selected_option = answer.option_ids[0]
         current_time = datetime.now(TIMEZONE)
 
@@ -167,10 +174,11 @@ async def enviar_mensagem_confirmacao(user_id: int):
     """Envia mensagem de confirmação após 1 hora"""
     try:
         await asyncio.sleep(3600)
-        await app_bot.bot.send_message(
-            chat_id=user_id,
-            text="Ótimo, fique tranquila! Você tomou seu remédio hoje ☺️!"
-        )
+        if app_bot:
+            await app_bot.bot.send_message(
+                chat_id=user_id,
+                text="Ótimo, fique tranquila! Você tomou seu remédio hoje ☺️!"
+            )
     except Exception as e:
         logger.error(f"Erro ao enviar confirmação: {str(e)}")
 
@@ -190,7 +198,7 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤖 *Status do Bot*\n"
         f"✅ Bot ativo há: {uptime.days}d {uptime.seconds//3600}h\n"
         f"🔄 Sua streak: {user_streak} dias\n"
-        f"⏰ Próxima enquete: 07:00 (BRT)\n\n"
+        f"⏰ Próxima enquete: 12:00 (meio-dia, BRT)\n\n"
         f"📝 *Comandos*\n"
         f"/start - Iniciar bot\n"
         f"/test - Enviar teste\n"
@@ -218,19 +226,26 @@ async def test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def agendar_tarefas():
     """Agenda as tarefas diárias"""
-    while True:
+    last_execution_day = None
+    
+    while is_running:
         try:
             now = datetime.now(TIMEZONE)
+            current_day = now.day
             
-            # Verificar se é 07:00 (horário de Brasília)
-            if now.hour == 7 and now.minute == 0:
+            # Verificar se é 12:00 (meio-dia, horário de Brasília) e ainda não executou hoje
+            if now.hour == 12 and now.minute == 0 and last_execution_day != current_day:
+                logger.info(f"Horário de envio de enquetes: {now.strftime('%H:%M:%S')}")
                 await enviar_enquete_diaria()
-                # Esperar 61 minutos para não executar múltiplas vezes no mesmo minuto
-                await asyncio.sleep(3660)
+                last_execution_day = current_day
+                # Esperar 2 minutos para não executar múltiplas vezes
+                await asyncio.sleep(120)
             else:
-                # Verificar a cada minuto
-                await asyncio.sleep(60)
+                # Verificar a cada 30 segundos
+                await asyncio.sleep(30)
                 
+        except asyncio.CancelledError:
+            break
         except Exception as e:
             logger.error(f"Erro no agendador: {str(e)}")
             await asyncio.sleep(60)
@@ -238,7 +253,17 @@ async def agendar_tarefas():
 # Servidor HTTP para manter o app ativo no Render
 async def health_check(request):
     """Endpoint de health check"""
-    return web.Response(text="Bot Telegram está online! ✅")
+    uptime = datetime.now(TIMEZONE) - start_time
+    status = {
+        "status": "online",
+        "uptime_days": uptime.days,
+        "uptime_hours": uptime.seconds // 3600,
+        "bot_started": start_time.isoformat(),
+        "chat_ids_count": len([c for c in CHAT_IDS if c.strip()]),
+        "next_poll_time": "12:00 (BRT)",
+        "timezone": "America/Sao_Paulo"
+    }
+    return web.json_response(status)
 
 async def start_http_server():
     """Inicia servidor HTTP para health checks"""
@@ -254,66 +279,116 @@ async def start_http_server():
     logger.info(f"Servidor HTTP iniciado na porta {PORT}")
     return runner
 
+async def cleanup():
+    """Limpeza antes de encerrar"""
+    global is_running
+    is_running = False
+    
+    if app_bot:
+        try:
+            await app_bot.stop()
+            await app_bot.shutdown()
+            logger.info("Bot do Telegram encerrado")
+        except Exception as e:
+            logger.error(f"Erro ao encerrar bot: {str(e)}")
+
+def handle_shutdown(signum, frame):
+    """Handler para sinais de desligamento"""
+    logger.info(f"Recebido sinal {signum}, encerrando...")
+    asyncio.create_task(cleanup())
+
 async def main():
     """Função principal"""
     global app_bot
     
+    # Configurar handlers de shutdown
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    
     logger.info(f"Bot iniciando em {start_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     logger.info(f"Chat IDs configurados: {CHAT_IDS}")
-    
-    # Inicializar bot do Telegram
-    app_bot = Application.builder().token(TOKEN).build()
-    
-    # Adicionar handlers
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(CommandHandler("test", test))
-    app_bot.add_handler(CommandHandler("clear", clear))
-    app_bot.add_handler(CommandHandler("info", info))
-    app_bot.add_handler(PollAnswerHandler(handle_poll_answer))
-    
-    # Iniciar servidor HTTP
-    http_runner = await start_http_server()
+    logger.info(f"Enquetes serão enviadas diariamente às 12:00 (BRT)")
     
     try:
-        # Iniciar bot
+        # Inicializar bot do Telegram com configurações específicas
+        app_bot = Application.builder().token(TOKEN).build()
+        
+        # Adicionar handlers
+        app_bot.add_handler(CommandHandler("start", start))
+        app_bot.add_handler(CommandHandler("test", test))
+        app_bot.add_handler(CommandHandler("clear", clear))
+        app_bot.add_handler(CommandHandler("info", info))
+        app_bot.add_handler(PollAnswerHandler(handle_poll_answer))
+        
+        # Iniciar servidor HTTP
+        http_runner = await start_http_server()
+        
+        # Iniciar bot - IMPORTANTE: drop_pending_updates=True
         await app_bot.initialize()
         await app_bot.start()
         
-        # Iniciar polling
+        # Usar timeout menor e polling mais eficiente
         await app_bot.updater.start_polling(
-            poll_interval=1.0,
+            poll_interval=0.5,  # Menor intervalo
             timeout=10,
-            drop_pending_updates=True,
-            allowed_updates=["message", "poll_answer"]
+            drop_pending_updates=True,  # CRÍTICO: descarta updates antigos
+            allowed_updates=["message", "poll_answer"],
+            bootstrap_retries=-1,  # Tentar indefinidamente
+            read_timeout=10,
+            write_timeout=10,
+            connect_timeout=10,
+            pool_timeout=10
         )
         
-        logger.info("Bot iniciado com sucesso!")
+        logger.info("Bot iniciado com sucesso com drop_pending_updates=True")
         
         # Iniciar agendador de tarefas
         scheduler_task = asyncio.create_task(agendar_tarefas())
         
         # Manter o bot rodando
-        await asyncio.Event().wait()
+        try:
+            while is_running:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            logger.info("Loop principal cancelado")
+            
+        # Aguardar tarefas finalizarem
+        if not scheduler_task.done():
+            scheduler_task.cancel()
+            try:
+                await scheduler_task
+            except asyncio.CancelledError:
+                pass
         
-    except asyncio.CancelledError:
-        logger.info("Bot sendo encerrado...")
-    except Exception as e:
-        logger.error(f"Erro crítico: {str(e)}")
-    finally:
-        # Limpeza
-        if app_bot:
-            await app_bot.stop()
-            await app_bot.shutdown()
-        
+        # Limpeza do servidor HTTP
         await http_runner.cleanup()
-        logger.info("Bot encerrado")
+        logger.info("Servidor HTTP encerrado")
+        
+    except Exception as e:
+        logger.error(f"Erro crítico no main: {str(e)}", exc_info=True)
+        raise
+    finally:
+        await cleanup()
 
 if __name__ == "__main__":
-    # Configurar asyncio para rodar no Render
+    # Configurar event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     try:
-        asyncio.run(main())
+        loop.run_until_complete(main())
     except KeyboardInterrupt:
         logger.info("Bot interrompido pelo usuário")
     except Exception as e:
-        logger.error(f"Falha ao iniciar bot: {str(e)}")
-        raise
+        logger.error(f"Falha ao iniciar bot: {str(e)}", exc_info=True)
+    finally:
+        # Limpar completamente o event loop
+        pending = asyncio.all_tasks(loop=loop)
+        for task in pending:
+            task.cancel()
+        
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        
+        loop.close()
+        logger.info("Event loop fechado")
